@@ -136,6 +136,9 @@ func (rp *RelyingParty) VerifyAttestation(challenge, clientDataJSON, attestation
 	if err != nil {
 		return nil, fmt.Errorf("parsing attestation object: %v", err)
 	}
+	if attObj.format != FormatNone && attObj.format != FormatPacked {
+		return nil, fmt.Errorf("unsupported attestation format %q", attObj.format)
+	}
 
 	data, err := parseAuthData(attObj.authData, rp.ID)
 	if err != nil {
@@ -175,6 +178,9 @@ func (rp *RelyingParty) VerifyAttestationPacked(challenge, clientDataJSON, attes
 	attObj, err := parseAttestationObject(attestationObject)
 	if err != nil {
 		return nil, fmt.Errorf("parsing attestation object: %v", err)
+	}
+	if attObj.format != FormatPacked {
+		return nil, fmt.Errorf("invalid attestation format %q, expected %q", attObj.format, FormatPacked)
 	}
 
 	data, err := attObj.VerifyPacked(rp.ID, clientDataJSON, opts)
@@ -293,9 +299,6 @@ func (o *attestationObject) VerifyPacked(rpid string, clientDataJSON []byte, opt
 	if opts == nil {
 		return nil, fmt.Errorf("options must be provided")
 	}
-	if !opts.AllowSelfAttested && opts.GetRoots == nil {
-		return nil, fmt.Errorf("self attested not allowed and no root certificates provided")
-	}
 
 	p, err := parsePacked(o.attestationStatement)
 	if err != nil {
@@ -334,6 +337,10 @@ func (o *attestationObject) VerifyPacked(rpid string, clientDataJSON []byte, opt
 			AttestationData: ad,
 			SelfAttested:    true,
 		}, nil
+	}
+
+	if opts.GetRoots == nil {
+		return nil, fmt.Errorf("packed attestation contains attestation certificate, but no root certificates provided")
 	}
 
 	var x5c []*x509.Certificate
@@ -788,6 +795,9 @@ func parseAuthData(b []byte, rpid string) (*Attestation, error) {
 		return nil, fmt.Errorf("not enough bytes for cred ID length")
 	}
 	credIDSize := binary.BigEndian.Uint16(b[:2])
+	if credIDSize > 1023 {
+		return nil, fmt.Errorf("credential ID length %d exceeds 1023 bytes", credIDSize)
+	}
 	b = b[2:]
 
 	size := int(credIDSize)
